@@ -1,32 +1,42 @@
-use actix_web::{web, App, HttpServer, Responder, HttpResponse};
-use dotenvy::dotenv;
-use std::env;
+mod handler;
+mod model;
+mod response;
 
-async fn health_check() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "UP",
-        "message": "Server is running smoothly"
-    }))
-}
+use actix_cors::Cors;
+use actix_web::middleware::Logger;
+use actix_web::{http::header, web, App, HttpServer};
+use model::AppState;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    dotenv().ok(); 
+    if std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var("RUST_LOG", "actix_web=info");
+    }
+    env_logger::init();
 
-    // Ambil nilai PORT dari environment
-    let port = env::var("PORT")
-        .expect("PORT environment variable not set");
+    let todo_db = AppState::init();
+    let app_data = web::Data::new(todo_db);
 
-    let address = format!("127.0.0.1:{}", port);
+    println!("🚀 Server started successfully");
 
-    println!("🚀 Server is running at http://{}", address);
-    println!("🔥 Press Ctrl+C to stop the server");
-
-    HttpServer::new(|| {
+    HttpServer::new(move || {
+        let cors = Cors::default()
+            .allowed_origin("http://localhost:3000")
+            .allowed_origin("http://localhost:3000/")
+            .allowed_methods(vec!["GET", "POST"])
+            .allowed_headers(vec![
+                header::CONTENT_TYPE,
+                header::AUTHORIZATION,
+                header::ACCEPT,
+            ])
+            .supports_credentials();
         App::new()
-            .route("/health", web::get().to(health_check)) // Route untuk health check
+            .app_data(app_data.clone())
+            .configure(handler::config)
+            .wrap(cors)
+            .wrap(Logger::default())
     })
-    .bind(address)? // Bind ke alamat yang ditentukan
+    .bind(("127.0.0.1", 8000))?
     .run()
     .await
 }
